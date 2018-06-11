@@ -464,6 +464,21 @@ void VisualizationManager::load( const Config& config )
   startUpdate();
 }
 
+void VisualizationManager::loadGroup(const Config& config)
+{
+    stopUpdate();
+    QVariant ln, dn, en;
+    config.mapGetValue("Class", &ln);
+    config.mapGetValue("Name", &dn);
+    config.mapGetValue("Enabled", &en);
+    QString lookup_name = ln.toString();
+    QString display_name = dn.toString();
+    bool enabled = en.toBool();
+    Display* display = createDisplay(lookup_name, display_name, enabled);
+    display->load(config);
+    startUpdate();
+}
+
 void VisualizationManager::save( Config config ) const
 {
   root_display_group_->save( config );

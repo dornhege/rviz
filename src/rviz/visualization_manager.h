@@ -164,6 +164,9 @@ public:
    */
   void load( const Config& config );
 
+  /// Additionally load a group from this config, adding to the current config.
+  void loadGroup(const Config& config);
+
   /**
    * \brief Save the properties of each Display and most editable rviz
    *        data.

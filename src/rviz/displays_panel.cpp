@@ -33,18 +33,30 @@
 #include <QPushButton>
 #include <QInputDialog>
 #include <QApplication>
+#include <QMessageBox>
+#include <QFileDialog>
 
 #include <boost/bind.hpp>
+#include <boost/filesystem.hpp>
 
 #include "rviz/display_factory.h"
 #include "rviz/display.h"
+#include "rviz/display_group.h"
 #include "rviz/add_display_dialog.h"
 #include "rviz/properties/property.h"
 #include "rviz/properties/property_tree_widget.h"
 #include "rviz/properties/property_tree_with_help.h"
 #include "rviz/visualization_manager.h"
+#include "rviz/yaml_config_reader.h"
+#include "rviz/yaml_config_writer.h"
 
 #include "rviz/displays_panel.h"
+
+namespace fs = boost::filesystem;
+
+// Copy from visualization_frame.cpp, where these were hardcoded
+#define CONFIG_EXTENSION "rviz"
+#define CONFIG_EXTENSION_WILDCARD "*." CONFIG_EXTENSION
 
 namespace rviz
 {
@@ -71,6 +83,13 @@ DisplaysPanel::DisplaysPanel( QWidget* parent )
   rename_button_->setToolTip( "Rename a display, Ctrl+R" );
   rename_button_->setEnabled( false );
 
+  load_group_button_ = new QPushButton( "Load Group" );
+  load_group_button_->setToolTip( "Load a group display" );
+  load_group_button_->setEnabled( true );
+  save_group_button_ = new QPushButton( "Save Group" );
+  save_group_button_->setToolTip( "Save a group display" );
+  save_group_button_->setEnabled( false );
+
   QHBoxLayout* button_layout = new QHBoxLayout;
   button_layout->addWidget( add_button );
   button_layout->addWidget( duplicate_button_ );
@@ -78,10 +97,16 @@ DisplaysPanel::DisplaysPanel( QWidget* parent )
   button_layout->addWidget( rename_button_ );
   button_layout->setContentsMargins( 2, 0, 2, 2 );
 
+  QHBoxLayout* save_button_layout = new QHBoxLayout;
+  save_button_layout->addWidget( load_group_button_ );
+  save_button_layout->addWidget( save_group_button_ );
+  save_button_layout->setContentsMargins( 2, 0, 2, 2 );
+
   QVBoxLayout* layout = new QVBoxLayout;
   layout->setContentsMargins( 0, 0, 0, 2 );
   layout->addWidget( tree_with_help_ );
   layout->addLayout( button_layout );
+  layout->addLayout( save_button_layout );
 
   setLayout( layout );
 
@@ -89,6 +114,8 @@ DisplaysPanel::DisplaysPanel( QWidget* parent )
   connect( duplicate_button_, SIGNAL( clicked( bool )), this, SLOT( onDuplicateDisplay() ));
   connect( remove_button_, SIGNAL( clicked( bool )), this, SLOT( onDeleteDisplay() ));
   connect( rename_button_, SIGNAL( clicked( bool )), this, SLOT( onRenameDisplay() ));
+  connect( load_group_button_, SIGNAL( clicked( bool )), this, SLOT( onLoadGroupDisplay() ));
+  connect( save_group_button_, SIGNAL( clicked( bool )), this, SLOT( onSaveGroupDisplay() ));
   connect( property_grid_, SIGNAL( selectionHasChanged() ), this, SLOT( onSelectionChanged() ));
 }
 
@@ -194,10 +221,13 @@ void DisplaysPanel::onSelectionChanged()
   QList<Display*> displays = property_grid_->getSelectedObjects<Display>();
 
   int num_displays_selected = displays.size();
+  bool is_group = num_displays_selected == 1 &&
+      (dynamic_cast<DisplayGroup*>(property_grid_->getSelectedObjects<Display>()[0]) != NULL);
 
   duplicate_button_->setEnabled( num_displays_selected > 0 );
   remove_button_->setEnabled( num_displays_selected > 0 );
   rename_button_->setEnabled( num_displays_selected == 1 );
+  save_group_button_->setEnabled( is_group );
 }
 
 void DisplaysPanel::onRenameDisplay()
@@ -223,6 +253,86 @@ void DisplaysPanel::onRenameDisplay()
   }
 
   display_to_rename->setName( new_name );
+}
+
+void DisplaysPanel::onSaveGroupDisplay()
+{
+  QList<Display*> displays = property_grid_->getSelectedObjects<Display>();
+  if( displays.size() != 1 )
+  {
+    return;
+  }
+  Display* display_to_save = displays[ 0 ];
+  if( !display_to_save )
+  {
+    return;
+  }
+
+  vis_manager_->stopUpdate();
+  QString save_filename = QFileDialog::getSaveFileName( this, "Choose a file to save to",
+                                                     QString(),
+                                                     "RViz config files (" CONFIG_EXTENSION_WILDCARD ")" );
+  vis_manager_->startUpdate();
+
+  if(save_filename.isEmpty())
+      return;
+
+  std::string filename = save_filename.toStdString();
+  fs::path path( filename );
+  if( path.extension() != "." CONFIG_EXTENSION )
+  {
+      filename += "." CONFIG_EXTENSION;
+  }
+
+  Config config;
+  display_to_save->save( config );
+
+  YamlConfigWriter writer;
+  writer.writeFile( config, QString::fromStdString(filename) );
+
+  QString error_message;
+  bool ok = true;
+  if( writer.error() )
+  {
+    ROS_ERROR( "%s", qPrintable( writer.errorMessage() ));
+    error_message = writer.errorMessage();
+    ok = false;
+  } else {
+    error_message = "";
+    ok = true;
+  }
+
+  if(!ok) {
+      QMessageBox::critical(this, "Failed to save.", error_message);
+  }
+}
+
+void DisplaysPanel::onLoadGroupDisplay()
+{
+  vis_manager_->stopUpdate();
+  QString filename = QFileDialog::getOpenFileName( this, "Choose a file to open",
+          QString(),
+          "RViz config files (" CONFIG_EXTENSION_WILDCARD ")"  );
+  vis_manager_->startUpdate();
+
+  if(filename.isEmpty())
+      return;
+
+  std::string path = filename.toStdString();
+  if( !fs::exists( path ))
+  {
+      QString message = filename + " does not exist!";
+      QMessageBox::critical( this, "Config file does not exist", message );
+      return;
+  }
+
+  YamlConfigReader reader;
+  Config config;
+  reader.readFile(config, filename);
+  if(reader.error())
+      return;
+
+  vis_manager_->loadGroup(config);
 }
 
 void DisplaysPanel::save( Config config ) const

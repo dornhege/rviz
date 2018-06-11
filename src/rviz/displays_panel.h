@@ -77,6 +77,9 @@ protected Q_SLOTS:
   void onDeleteDisplay();
   /// Called when the "Rename" button is pressed
   void onRenameDisplay();
+  /// Called when the "Save Group" button is pressed
+  void onSaveGroupDisplay();
+  void onLoadGroupDisplay();
 
   void onSelectionChanged();
 
@@ -86,6 +89,8 @@ protected:
   QPushButton* duplicate_button_;
   QPushButton* remove_button_;
   QPushButton* rename_button_;
+  QPushButton* load_group_button_;
+  QPushButton* save_group_button_;
   PropertyTreeWithHelp* tree_with_help_;
 };
 
